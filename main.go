@@ -1,38 +1,66 @@
+//unmarshaling issue for Location struct
+
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
-type SunTimes struct {
-	sunrise, sunset int
+type LocationData []struct {
+	PlaceID     int      `json:"place_id"`
+	Licence     string   `json:"licence"`
+	OsmType     string   `json:"osm_type"`
+	OsmID       int      `json:"osm_id"`
+	Boundingbox []string `json:"boundingbox"`
+	Lat         string   `json:"lat"`
+	Lon         string   `json:"lon"`
+	DisplayName string   `json:"display_name"`
+	Class       string   `json:"class"`
+	Type        string   `json:"type"`
+	Importance  float64  `json:"importance"`
 }
 
 type Location struct {
-	Lat string `json:"lat"`
-	Lon string `json:"lon"`
+	Lat, Lon float64
 }
 
 type SunData struct {
 	Results struct {
-		sunrise string `json:"sunrise"`
-		sunset  string `json:"sunset"`
+		Sunrise                   string `json:"sunrise"`
+		Sunset                    string `json:"sunset"`
+		SolarNoon                 string `json:"solar_noon"`
+		DayLength                 string `json:"day_length"`
+		CivilTwilightBegin        string `json:"civil_twilight_begin"`
+		CivilTwilightEnd          string `json:"civil_twilight_end"`
+		NauticalTwilightBegin     string `json:"nautical_twilight_begin"`
+		NauticalTwilightEnd       string `json:"nautical_twilight_end"`
+		AstronomicalTwilightBegin string `json:"astronomical_twilight_begin"`
+		AstronomicalTwilightEnd   string `json:"astronomical_twilight_end"`
 	} `json:"results"`
+	Status string `json:"status"`
+	Tzid   string `json:"tzid"`
+}
+
+type SunTimes struct {
+	sunrise, sunset int
 }
 
 func main() {
 	Location := getLatLon()
 	fmt.Println(Location)
-	// SunTimes := getSunriseAndSetMin(Location)
-	// angle := getAngle(SunTimes)
-	// fmt.Println(angle)
+	SunTimes := getSunriseAndSetMin(Location)
+	angle := getAngle(SunTimes)
+	fmt.Println(angle)
 }
 
 // how to store these in client???!!
@@ -45,10 +73,13 @@ func getLatLon() Location {
 	}
 	key := os.Getenv("GEOCODEKEY")
 
-	//get user location input
-	fmt.Printf("location: ")
-	var locationInput string
-	fmt.Scan(&locationInput)
+	//get and format user location input
+	fmt.Printf("human readable location: ")
+	reader := bufio.NewReader(os.Stdin)
+	locationInput, _ := reader.ReadString('\n')
+	locationInput = strings.TrimSpace(locationInput)
+	locationInput = strings.Replace(locationInput, " ", "+", -1)
+	locationInput = strings.Replace(locationInput, ",", "+", -1)
 
 	//get lat, lon from user input
 	url := fmt.Sprintf("https://geocode.maps.co/search?q=%s&api_key=%s", locationInput, key)
@@ -67,11 +98,25 @@ func getLatLon() Location {
 		fmt.Print(err.Error())
 	}
 
-	var location Location
-	err = json.Unmarshal(body, &location)
+	fmt.Println(string(body))
+
+	var LocationData LocationData
+	err = json.Unmarshal(body, &LocationData)
 	if err != nil {
 		fmt.Print(err.Error())
 	}
+
+	//add functionality to ask which is the correct of list of locations after user input
+	//currently just using the first location
+	firstLocation := LocationData[0]
+	latStr := firstLocation.Lat
+	lonStr := firstLocation.Lon
+
+	latFloat, _ := strconv.ParseFloat(latStr, 64)
+	lonFloat, _ := strconv.ParseFloat(lonStr, 64)
+
+	var location = Location{latFloat, lonFloat}
+
 	return location
 }
 
@@ -102,15 +147,18 @@ func getSunriseAndSetMin(Location Location) SunTimes {
 	if readErr != nil {
 		fmt.Print(err.Error())
 	}
+	fmt.Println(string(body))
 
-	var data SunData
-	err = json.Unmarshal(body, &data)
+	var sunData SunData
+	err = json.Unmarshal([]byte(body), &sunData)
 	if err != nil {
 		fmt.Print(err.Error())
 	}
+
+	fmt.Println(sunData)
 	//format results
-	sunrise := getMinutes(data.Results.sunrise)
-	sunset := getMinutes(data.Results.sunset)
+	sunrise := getMinutes(sunData.Results.Sunrise)
+	sunset := getMinutes(sunData.Results.Sunset)
 	var Times = SunTimes{sunrise, sunset}
 	return Times
 }
@@ -138,7 +186,7 @@ func getAngle(Times SunTimes) float64 {
 
 // parse to minutes
 func getMinutes(timeStr string) int {
-	t, err := time.Parse("1:02:03 PM", timeStr)
+	t, err := time.Parse("3:04:05 PM", timeStr)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
