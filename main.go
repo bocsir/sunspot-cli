@@ -1,10 +1,12 @@
-//unmarshaling issue for Location struct
+//add option to change location string
+//implement ascii art somehow
 
 package main
 
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,16 +58,24 @@ type SunTimes struct {
 }
 
 func main() {
-	Location := getLatLon()
-	fmt.Println(Location)
-	SunTimes := getSunriseAndSetMin(Location)
+	//if !location
+	var Location Location
+
+	//this is where i need to pull location from text file
+	StoredLocation, err := getCoords()
+	//if no location, ask user for one and store coords
+	if err != nil {
+		Location = stringToCoords()
+		storeCoords(Location)
+	}
+
+	SunTimes := getSunriseAndSetMin(StoredLocation)
 	angle := getAngle(SunTimes)
 	fmt.Println(angle)
 }
 
-// how to store these in client???!!
 // get user input for lat, lon
-func getLatLon() Location {
+func stringToCoords() Location {
 	//get key
 	err := godotenv.Load("local.env")
 	if err != nil {
@@ -118,6 +128,43 @@ func getLatLon() Location {
 	var location = Location{latFloat, lonFloat}
 
 	return location
+}
+
+// store coords in text file
+func storeCoords(Location Location) {
+	//comma separated lat,lon
+	locStr := fmt.Sprintf("%f,%f", Location.Lat, Location.Lon)
+
+	//create and write to file
+	f, err := os.Create("coords.txt")
+	if err != nil {
+		fmt.Print(err.Error())
+	}
+	defer f.Close()
+	_, err2 := f.WriteString(locStr)
+	if err2 != nil {
+		fmt.Print(err.Error())
+	}
+}
+
+// get coords from text file
+func getCoords() (Location, error) {
+	//read from file
+	coords, err := os.ReadFile("coords.txt")
+	if err != nil {
+		fmt.Print(err.Error())
+	}
+	if len(coords) < 1 {
+		var EmptyLoc = Location{0.0, 0.0}
+		return EmptyLoc, errors.New("Coords not found")
+	}
+	//format
+	coordsSeparated := strings.Split(string(coords), ",")
+	latFloat, _ := strconv.ParseFloat(coordsSeparated[0], 64)
+	lonFloat, _ := strconv.ParseFloat(coordsSeparated[1], 64)
+	var Location = Location{latFloat, lonFloat}
+
+	return Location, nil
 }
 
 // needs to take lat and lon as input
