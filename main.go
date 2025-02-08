@@ -1,6 +1,4 @@
-//add option to change location string
-//implement ascii art somehow
-
+// add option to change location string
 package main
 
 import (
@@ -9,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -38,44 +39,96 @@ type Location struct {
 
 type SunData struct {
 	Results struct {
-		Sunrise                   string `json:"sunrise"`
-		Sunset                    string `json:"sunset"`
-		SolarNoon                 string `json:"solar_noon"`
-		DayLength                 string `json:"day_length"`
-		CivilTwilightBegin        string `json:"civil_twilight_begin"`
-		CivilTwilightEnd          string `json:"civil_twilight_end"`
-		NauticalTwilightBegin     string `json:"nautical_twilight_begin"`
-		NauticalTwilightEnd       string `json:"nautical_twilight_end"`
-		AstronomicalTwilightBegin string `json:"astronomical_twilight_begin"`
-		AstronomicalTwilightEnd   string `json:"astronomical_twilight_end"`
+		Date       string `json:"date"`
+		Sunrise    string `json:"sunrise"`
+		Sunset     string `json:"sunset"`
+		FirstLight string `json:"first_light"`
+		LastLight  string `json:"last_light"`
+		Dawn       string `json:"dawn"`
+		Dusk       string `json:"dusk"`
+		SolarNoon  string `json:"solar_noon"`
+		GoldenHour string `json:"golden_hour"`
+		DayLength  string `json:"day_length"`
+		Timezone   string `json:"timezone"`
+		UTCOffset  int    `json:"utc_offset"`
 	} `json:"results"`
 	Status string `json:"status"`
-	Tzid   string `json:"tzid"`
 }
 
 type SunTimes struct {
-	sunrise, sunset int
+	sunrise, sunset, tzOffset int
 }
 
 func main() {
-	//if !location
-	var Location Location
+	var wg sync.WaitGroup
+	var location Location
+	var sunTimes SunTimes
+	var apiErr error
 
-	//this is where i need to pull location from text file
-	StoredLocation, err := getCoords()
-	//if no location, ask user for one and store coords
+	// Get location
+	storedLocation, err := getCoords()
 	if err != nil {
-		Location = stringToCoords()
-		storeCoords(Location)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			loc, err := stringToCoords()
+			if err != nil {
+				apiErr = err
+				return
+			}
+			location = loc
+		}()
+
+		wg.Wait()
+		if apiErr != nil {
+			fmt.Printf("Error getting coordinates:", apiErr)
+		}
+		storeCoords(location)
+	} else {
+		location = storedLocation
 	}
 
-	SunTimes := getSunriseAndSetMin(StoredLocation)
-	angle := getAngle(SunTimes)
-	fmt.Println(angle)
+	// Get sun times
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		times, err := getSunriseAndSetMin(location)
+		if err != nil {
+			apiErr = err
+			return
+		}
+		sunTimes = times
+	}()
+
+	wg.Wait()
+	if apiErr != nil {
+		log.Fatal("Error getting sun times:", apiErr)
+	}
+
+	angle := getAngle(sunTimes)
+	fileName := getFileName(angle)
+	printFileStream("./ascii-art/" + fileName)
+}
+
+func getFileName(angle float64) string {
+	fileNames := [16]string{"0.txt", "22.txt", "45.txt", "67.txt", "90.txt", "112.txt", "135.txt", "156.txt", "180.txt", "202.txt", "225.txt", "247.txt", "270.txt", "292.txt", "315.txt", "337.txt"}
+	closestIncrement := int(math.Round(float64(angle) / 22.5))
+	return fileNames[closestIncrement]
+}
+
+func printFileStream(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = io.Copy(os.Stdout, file)
+	return err
 }
 
 // get user input for lat, lon
-func stringToCoords() Location {
+func stringToCoords() (Location, error) {
 	//get key
 	err := godotenv.Load("local.env")
 	if err != nil {
@@ -108,8 +161,6 @@ func stringToCoords() Location {
 		fmt.Print(err.Error())
 	}
 
-	fmt.Println(string(body))
-
 	var LocationData LocationData
 	err = json.Unmarshal(body, &LocationData)
 	if err != nil {
@@ -127,7 +178,7 @@ func stringToCoords() Location {
 
 	var location = Location{latFloat, lonFloat}
 
-	return location
+	return location, nil
 }
 
 // store coords in text file
@@ -156,7 +207,7 @@ func getCoords() (Location, error) {
 	}
 	if len(coords) < 1 {
 		var EmptyLoc = Location{0.0, 0.0}
-		return EmptyLoc, errors.New("Coords not found")
+		return EmptyLoc, errors.New("coords not found")
 	}
 	//format
 	coordsSeparated := strings.Split(string(coords), ",")
@@ -168,16 +219,12 @@ func getCoords() (Location, error) {
 }
 
 // needs to take lat and lon as input
-func getSunriseAndSetMin(Location Location) SunTimes {
-	//test values:
-	// lat := 36.7201600
-	// lon := -4.4203400
-
+func getSunriseAndSetMin(Location Location) (SunTimes, error) {
 	lat := Location.Lat
 	lon := Location.Lon
 
 	//call API for times
-	url := fmt.Sprintf("https://api.sunrise-sunset.org/json?lat=%f&lng=%f", lat, lon)
+	url := fmt.Sprintf("https://api.sunrisesunset.io/json?lat=%f&lng=%f&time_format=24", lat, lon)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Print(err.Error())
@@ -194,7 +241,6 @@ func getSunriseAndSetMin(Location Location) SunTimes {
 	if readErr != nil {
 		fmt.Print(err.Error())
 	}
-	fmt.Println(string(body))
 
 	var sunData SunData
 	err = json.Unmarshal([]byte(body), &sunData)
@@ -202,38 +248,38 @@ func getSunriseAndSetMin(Location Location) SunTimes {
 		fmt.Print(err.Error())
 	}
 
-	fmt.Println(sunData)
+	fmt.Println("Sun Rise: ", sunData.Results.Sunrise)
+	fmt.Println("Sun Set:  ", sunData.Results.Sunset)
+
 	//format results
 	sunrise := getMinutes(sunData.Results.Sunrise)
 	sunset := getMinutes(sunData.Results.Sunset)
-	var Times = SunTimes{sunrise, sunset}
-	return Times
+	var Times = SunTimes{sunrise, sunset, sunData.Results.UTCOffset}
+	return Times, nil
 }
 
 // get angle to create ASCII art with
 func getAngle(Times SunTimes) float64 {
-	c := time.Now().Minute() + time.Now().Hour()*60
-
-	//test values:
-	// c := 600
-	// r := 450
-	// s := 1065
-
+	loc := time.FixedZone("Custom", Times.tzOffset*60)
+	c := time.Now().In(loc).Minute() + time.Now().In(loc).Hour()*60
 	r := Times.sunrise
 	s := Times.sunset
 
 	var angle float64
+
 	if r < c && c < s { //day
-		angle = float64(c-r) / float64(s-r) * 180
+		angle = float64(c) / float64(s-r) * 180
 	} else { //night
-		angle = float64(c+(1440-s))/float64(1440-(s-r))*180 + 180
+		nightLen := float64((1440 - (s - r)))
+		nightCoveredRatio := float64(1 - (nightLen / float64(c)))
+		angle = nightCoveredRatio*180 + 180
 	}
 	return angle
 }
 
 // parse to minutes
 func getMinutes(timeStr string) int {
-	t, err := time.Parse("3:04:05 PM", timeStr)
+	t, err := time.Parse("15:04:05", timeStr)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
