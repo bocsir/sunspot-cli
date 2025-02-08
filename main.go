@@ -248,8 +248,17 @@ func getSunriseAndSetMin(Location Location) (SunTimes, error) {
 		fmt.Print(err.Error())
 	}
 
-	fmt.Println("Sun Rise: ", sunData.Results.Sunrise)
-	fmt.Println("Sun Set:  ", sunData.Results.Sunset)
+	riseStr, err2 := addAMPM(sunData.Results.Sunrise)
+	if err2 != nil {
+		fmt.Println("Error: ", err)
+	}
+	setStr, err := addAMPM(sunData.Results.Sunset)
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+
+	fmt.Println("Sun Rise: ", riseStr)
+	fmt.Println("Sun Set:  ", setStr)
 
 	//format results
 	sunrise := getMinutes(sunData.Results.Sunrise)
@@ -270,8 +279,8 @@ func getAngle(Times SunTimes) float64 {
 	if r < c && c < s { //day
 		angle = float64(c) / float64(s-r) * 180
 	} else { //night
-		nightLen := float64((1440 - (s - r)))
-		nightCoveredRatio := float64(1 - (nightLen / float64(c)))
+		nightLen := float64(1440 - (s - r)) //min in day - min of sun
+		nightCoveredRatio := (1 - (float64(c) / nightLen))
 		angle = nightCoveredRatio*180 + 180
 	}
 	return angle
@@ -284,4 +293,29 @@ func getMinutes(timeStr string) int {
 		fmt.Println(err.Error())
 	}
 	return t.Hour()*60 + t.Minute()
+}
+
+func addAMPM(militaryTime string) (string, error) {
+	parts := strings.Split(militaryTime, ":")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("invalid format: expected HH:MM:SS, got %s", militaryTime)
+	}
+
+	hours, err := strconv.Atoi(parts[0])
+	if err != nil || hours < 0 || hours > 23 {
+		return "", fmt.Errorf("invalid hours")
+	}
+
+	period := "AM"
+	if hours >= 12 {
+		period = "PM"
+		if hours > 12 {
+			hours -= 12
+		}
+	}
+	if hours == 0 {
+		hours = 12
+	}
+
+	return fmt.Sprintf("%02d:%s %s", hours, parts[1], period), nil
 }
