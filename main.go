@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -108,6 +109,7 @@ func main() {
 	angle := getAngle(sunTimes)
 	fileName := getFileName(angle)
 	printFileStream("./ascii-art/" + fileName)
+	fmt.Println()
 }
 
 func getFileName(angle float64) string {
@@ -205,7 +207,8 @@ func getCoords() (Location, error) {
 	if err != nil {
 		fmt.Print(err.Error())
 	}
-	if len(coords) < 1 {
+	//check format
+	if !isValidCoordinates(string(coords)) {
 		var EmptyLoc = Location{0.0, 0.0}
 		return EmptyLoc, errors.New("coords not found")
 	}
@@ -216,6 +219,19 @@ func getCoords() (Location, error) {
 	var Location = Location{latFloat, lonFloat}
 
 	return Location, nil
+}
+
+// regex for coordinates
+func isValidCoordinates(coords string) bool {
+	var coordinateRegex = regexp.MustCompile(
+		`^` + // Start of string
+			`([-+]?(?:[0-8][0-9](?:\.[0-9]{1,8})?|90(?:\.0{1,8})?))` + // Latitude: -90 to 90 with optional decimals
+			`,` + // Comma separator
+			`([-+]?(?:(?:1[0-7][0-9]|[0-9]{1,2})(?:\.[0-9]{1,8})?|180(?:\.0{1,8})?))` + // Longitude: -180 to 180 with optional decimals
+			`$`, // End of string
+	)
+
+	return coordinateRegex.MatchString(coords)
 }
 
 // needs to take lat and lon as input
@@ -270,20 +286,31 @@ func getSunriseAndSetMin(Location Location) (SunTimes, error) {
 // get angle to create ASCII art with
 func getAngle(Times SunTimes) float64 {
 	loc := time.FixedZone("Custom", Times.tzOffset*60)
-	c := time.Now().In(loc).Minute() + time.Now().In(loc).Hour()*60
+	currentTime := time.Now().In(loc)
+	c := currentTime.Minute() + currentTime.Hour()*60
 	r := Times.sunrise
 	s := Times.sunset
 
 	var angle float64
 
-	if r < c && c < s { //day
-		angle = float64(c) / float64(s-r) * 180
-	} else { //night
-		nightLen := float64(1440 - (s - r)) //min in day - min of sun
-		nightCoveredRatio := (1 - (float64(c) / nightLen))
-		angle = nightCoveredRatio*180 + 180
+	if r <= c && c <= s { // day
+		if s == r {
+			return 90 // or whatever default angle makes sense for this edge case
+		}
+		angle = float64(c-r) / float64(s-r) * 180
+	} else { // night
+		totalMinutes := 24 * 60
+		if c < r { // before sunrise
+			nightProgress := float64(c+(totalMinutes-s)) / float64(totalMinutes-(s-r))
+			angle = 180 + (nightProgress * 180)
+		} else { // after sunset
+			nightProgress := float64(c-s) / float64(totalMinutes-(s-r))
+			angle = 180 + (nightProgress * 180)
+		}
 	}
-	return angle
+
+	// Ensure angle stays within 0-360 range
+	return math.Mod(angle+360, 360)
 }
 
 // parse to minutes
