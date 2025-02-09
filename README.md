@@ -29,6 +29,7 @@ git clone https://github.com/bocsir/sunspot-cli.git
 cd sunspot-cli
 go run main.go
 ```
+You'll also need to get an API key geocode.maps.co in a file named `local.env` as `GEOCODEKEY=<API_KEY>`
 
 ### To change location
 ```
