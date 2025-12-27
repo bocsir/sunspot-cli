@@ -82,7 +82,7 @@ func main() {
 
 		wg.Wait()
 		if apiErr != nil {
-			fmt.Printf("Error getting coordinates:", apiErr)
+			fmt.Printf("Error getting coordinates: %v\n", apiErr)
 		}
 		storeCoords(location)
 	} else {
@@ -273,6 +273,7 @@ func getSunriseAndSetMin(Location Location) (SunTimes, error) {
 		fmt.Println("Error: ", err)
 	}
 
+	fmt.Println(time.Now().Format(time.RFC850))
 	fmt.Println("Sun Rise: ", riseStr)
 	fmt.Println("Sun Set:  ", setStr)
 
